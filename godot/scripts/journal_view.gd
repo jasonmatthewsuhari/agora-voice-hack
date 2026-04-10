@@ -1,27 +1,30 @@
 extends Control
 
 const CLOSED_OFFSETS := {
-	"left": -92.0,
-	"top": -256.0,
-	"right": 808.0,
-	"bottom": -4.0,
+	"left": -126.0,
+	"top": -248.0,
+	"right": 610.0,
+	"bottom": 324.0,
 }
 
 const OPEN_OFFSETS := {
-	"left": -1016.0,
-	"top": -632.0,
-	"right": -116.0,
-	"bottom": -12.0,
+	"left": -812.0,
+	"top": -262.0,
+	"right": -76.0,
+	"bottom": 310.0,
 }
 
-const CLOSED_ROTATION := -0.139626
-const OPEN_ROTATION := -0.0872665
-const CLOSED_SCALE := Vector2.ONE
+const CLOSED_ROTATION := 0.0
+const OPEN_ROTATION := 0.0
+const CLOSED_SCALE := Vector2(0.93, 0.93)
 const OPEN_SCALE := Vector2.ONE
 const CLOSED_BACKDROP_ALPHA := 0.0
-const OPEN_BACKDROP_ALPHA := 0.18
+const OPEN_BACKDROP_ALPHA := 0.5
+const CLOSED_BOOKMARK_ALPHA := 0.0
+const OPEN_BOOKMARK_ALPHA := 1.0
+const CLOSED_BOOKMARK_ROTATION := 0.0
+const OPEN_BOOKMARK_ROTATION := 0.0
 const TRANSITION_DURATION := 0.2
-const BOOK_ART_PATH := "res://assets/ui/journal_open.png"
 
 const CORRECT_CASE := {
 	"suspect": 2,
@@ -37,7 +40,7 @@ const THEORY_CROSS_CHECK := "[i]Cross-check complete:[/i] Ren and Daichi now car
 
 @onready var backdrop: ColorRect = $Backdrop
 @onready var journal_shell: PanelContainer = $JournalShell
-@onready var book_art: TextureRect = $JournalShell/BookArt
+@onready var bookmark: Control = $JournalShell/Bookmark
 @onready var phase_summary: Label = $JournalShell/Margin/Book/LeftPage/CaseStatus/CaseStatusPadding/CaseStatusBody/PhaseSummary
 @onready var phase_hint: Label = $JournalShell/Margin/Book/LeftPage/CaseStatus/CaseStatusPadding/CaseStatusBody/PhaseHint
 @onready var theory_text: RichTextLabel = $JournalShell/Margin/Book/LeftPage/TheoryPanel/TheoryPadding/TheoryBody/TheoryText
@@ -66,7 +69,6 @@ func _ready() -> void:
 	weapon_choice.item_selected.connect(_on_case_selection_changed)
 	location_choice.item_selected.connect(_on_case_selection_changed)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_load_book_art()
 	_apply_default_state()
 	_apply_pose(false)
 
@@ -104,6 +106,8 @@ func _apply_pose(opened: bool) -> void:
 	journal_shell.offset_bottom = offsets.bottom
 	journal_shell.rotation = OPEN_ROTATION if opened else CLOSED_ROTATION
 	journal_shell.scale = OPEN_SCALE if opened else CLOSED_SCALE
+	bookmark.modulate.a = OPEN_BOOKMARK_ALPHA if opened else CLOSED_BOOKMARK_ALPHA
+	bookmark.rotation = OPEN_BOOKMARK_ROTATION if opened else CLOSED_BOOKMARK_ROTATION
 	backdrop.color.a = OPEN_BACKDROP_ALPHA if opened else CLOSED_BACKDROP_ALPHA
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP if opened else Control.MOUSE_FILTER_IGNORE
 
@@ -113,6 +117,8 @@ func _animate_pose() -> void:
 	var target_rotation := OPEN_ROTATION if is_journal_open else CLOSED_ROTATION
 	var target_scale := OPEN_SCALE if is_journal_open else CLOSED_SCALE
 	var target_backdrop_alpha := OPEN_BACKDROP_ALPHA if is_journal_open else CLOSED_BACKDROP_ALPHA
+	var target_bookmark_alpha := OPEN_BOOKMARK_ALPHA if is_journal_open else CLOSED_BOOKMARK_ALPHA
+	var target_bookmark_rotation := OPEN_BOOKMARK_ROTATION if is_journal_open else CLOSED_BOOKMARK_ROTATION
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP if is_journal_open else Control.MOUSE_FILTER_IGNORE
 
 	var tween := create_tween().set_parallel(true)
@@ -124,18 +130,9 @@ func _animate_pose() -> void:
 	tween.tween_property(journal_shell, "offset_bottom", offsets.bottom, TRANSITION_DURATION)
 	tween.tween_property(journal_shell, "rotation", target_rotation, TRANSITION_DURATION)
 	tween.tween_property(journal_shell, "scale", target_scale, TRANSITION_DURATION)
+	tween.tween_property(bookmark, "modulate:a", target_bookmark_alpha, TRANSITION_DURATION)
+	tween.tween_property(bookmark, "rotation", target_bookmark_rotation, TRANSITION_DURATION)
 	tween.tween_property(backdrop, "color:a", target_backdrop_alpha, TRANSITION_DURATION)
-
-
-func _load_book_art() -> void:
-	if not FileAccess.file_exists(BOOK_ART_PATH):
-		return
-
-	var image := Image.load_from_file(BOOK_ART_PATH)
-	if image == null:
-		return
-
-	book_art.texture = ImageTexture.create_from_image(image)
 
 
 func _on_pin_clue_pressed() -> void:
