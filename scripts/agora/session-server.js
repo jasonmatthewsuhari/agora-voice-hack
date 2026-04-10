@@ -242,10 +242,11 @@ const server = http.createServer(async (req, res) => {
     const interactNpcId = matchNpcRoute(pathname, "interact");
     if (req.method === "POST" && interactNpcId) {
       const body = parseJsonBody(await readRequestBody(req));
-      const { sessionId, playerUid } = body;
+      const { sessionId, playerUid, round, phase } = body;
       const session = requireSession(sessionId);
       const npcState = getNpcState(sessionId, interactNpcId);
       const npcProfile = getNpcProfile(interactNpcId);
+      const roundInfo = (round != null) ? { round: Number(round), phase: phase || "investigation" } : null;
 
       log(`[npc/interact] session="${sessionId}" npc=${interactNpcId} tier=${npcState.breakdown < 30 ? "calm" : npcState.breakdown < 60 ? "nervous" : npcState.breakdown < 90 ? "cracking" : "shutdown"} breakdown=${Math.round(npcState.breakdown)}% trust=${Math.round(npcState.trust)}% emotion=${npcState.emotion}`);
 
@@ -284,7 +285,8 @@ const server = http.createServer(async (req, res) => {
         npcProfile,
         npcState,
         session.scenario,
-        resolvedUid || 5000
+        resolvedUid || 5000,
+        roundInfo
       );
 
       log(`[npc/interact] ${interactNpcId} ready — channel=${result.channel} agentId=${result.agent.agent_id}`);

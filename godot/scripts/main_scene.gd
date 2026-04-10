@@ -2,6 +2,7 @@ extends Node2D
 
 @export var interact_distance := 104.0
 @export var hold_duration := 0.8
+@export var talk_distance := 120.0
 
 @onready var player: CharacterBody2D = $World/Actors/Player
 @onready var player_sprite: AnimatedSprite2D = $World/Actors/Player/AnimatedSprite2D
@@ -21,12 +22,29 @@ var _interaction_tween: Tween
 var _voice_prompt: Control
 var minimap: Control
 
+# Round tracking (updated externally or via round timer signal)
+var _current_round := 1
+var _current_phase := "investigation"
+
+# Voice / NPC conversation state
+var _voice_webview: Node = null
+var _awaiting_voice_leave := false
+var _leave_fallback_timer: SceneTreeTimer = null
+var _npcs: Array[Node2D] = []
+var _nearest_npc: Node2D = null
+var _talking_to_npc: Node2D = null
+var _npc_talk_prompt: Label = null
+var _server_error_label: Label = null
+var _m_was_pressed := false
+
 
 func _ready() -> void:
 	prompt.set_prompt_visible(false)
 	prompt.set_progress(0.0)
 	player_sprite.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	_setup_voice_prompt()
+	_setup_npc_talk_prompt()
+	_setup_server_error_label()
 	_setup_npcs()
 	var glow_modulate := item_glow.modulate
 	glow_modulate.a = 0.0
@@ -42,11 +60,22 @@ func _ready() -> void:
 			PackedStringArray(["Clue"])
 		)
 
+	_setup_voice_webview()
+	_connect_session_manager()
+	GameSessionManager.initialize()
+
 
 func _process(delta: float) -> void:
-	if _voice_prompt != null and _voice_prompt.has_method("set_active"):
-		_voice_prompt.call("set_active", Input.is_key_pressed(KEY_M))
+	_update_item_interaction(delta)
+	_update_npc_proximity()
 
+	if _voice_prompt != null and _voice_prompt.has_method("set_active"):
+		_voice_prompt.call("set_active", _talking_to_npc != null)
+
+
+# ── Item interaction ──────────────────────────────────────────────────────────
+
+func _update_item_interaction(delta: float) -> void:
 	var near_item := player.global_position.distance_to(item.global_position) <= interact_distance
 	var can_interact := near_item and not _is_animating()
 	var is_holding := can_interact and Input.is_key_pressed(KEY_E)
@@ -57,7 +86,7 @@ func _process(delta: float) -> void:
 		_hold_time = move_toward(_hold_time, 0.0, delta * 1.9)
 
 	var progress := 0.0 if hold_duration <= 0.0 else _hold_time / hold_duration
-	prompt.set_prompt_visible(near_item)
+	prompt.set_prompt_visible(near_item and _talking_to_npc == null)
 	prompt.set_progress(progress)
 	_position_prompt()
 	_update_item_idle(delta, near_item)
@@ -66,6 +95,213 @@ func _process(delta: float) -> void:
 		_hold_time = 0.0
 		prompt.set_progress(0.0)
 		_trigger_item()
+
+
+# ── NPC proximity and talk ────────────────────────────────────────────────────
+
+func _update_npc_proximity() -> void:
+	# Find nearest NPC
+	var closest: Node2D = null
+	var closest_dist := INF
+	for npc in _npcs:
+		if not is_instance_valid(npc):
+			continue
+		var d := player.global_position.distance_to(npc.global_position)
+		if d < closest_dist:
+			closest_dist = d
+			closest = npc
+
+	_nearest_npc = closest if closest_dist <= talk_distance else null
+
+	# Auto-end conversation if player walked away
+	if _talking_to_npc != null and is_instance_valid(_talking_to_npc):
+		var dist_to_talking := player.global_position.distance_to(_talking_to_npc.global_position)
+		if dist_to_talking > talk_distance * 1.5:
+			_end_conversation()
+
+	# Show/hide NPC talk prompt
+	var show_talk := _nearest_npc != null and _talking_to_npc == null
+	if _npc_talk_prompt != null:
+		_npc_talk_prompt.visible = show_talk
+		if show_talk and _nearest_npc != null:
+			var screen_pos := get_viewport().get_canvas_transform() * _nearest_npc.global_position
+			_npc_talk_prompt.position = screen_pos + Vector2(-_npc_talk_prompt.size.x * 0.5, -100.0)
+
+	# M key: start or end conversation
+	if Input.is_action_just_pressed("ui_cancel"):
+		pass  # reserved
+	if Input.is_key_pressed(KEY_M) and not _m_was_pressed:
+		_m_was_pressed = true
+		if _talking_to_npc != null:
+			_end_conversation()
+		elif _nearest_npc != null:
+			_start_conversation(_nearest_npc)
+	elif not Input.is_key_pressed(KEY_M):
+		_m_was_pressed = false
+
+func _start_conversation(npc: Node2D) -> void:
+	_talking_to_npc = npc
+	if npc.has_method("set_talking"):
+		npc.call("set_talking", true)
+	var npc_role: String = npc.get("role") if npc.get("role") != null else ""
+	if npc_role == "":
+		push_warning("[main_scene] NPC has no role property: %s" % npc.name)
+		return
+	GameSessionManager.start_npc_conversation(npc_role, _current_round, _current_phase)
+
+
+func _end_conversation() -> void:
+	if _talking_to_npc != null and is_instance_valid(_talking_to_npc):
+		if _talking_to_npc.has_method("set_talking"):
+			_talking_to_npc.call("set_talking", false)
+	_talking_to_npc = null
+
+	# Tell WebView to leave first, then the backend will be called in signal handler
+	if _voice_webview != null:
+		_awaiting_voice_leave = true
+		_voice_webview.call("post_message", JSON.stringify({ "action": "leave" }))
+		_leave_fallback_timer = get_tree().create_timer(3.0)
+		_leave_fallback_timer.timeout.connect(_on_leave_fallback_timeout)
+	else:
+		GameSessionManager.end_npc_conversation()
+
+
+func _on_leave_fallback_timeout() -> void:
+	if not _awaiting_voice_leave:
+		return
+	_awaiting_voice_leave = false
+	GameSessionManager.end_npc_conversation()
+
+
+# ── WebView voice bridge ──────────────────────────────────────────────────────
+
+func _setup_voice_webview() -> void:
+	if not ClassDB.class_exists("WebView"):
+		push_warning("[main_scene] Godot WRY WebView not found — voice disabled. Install the WRY plugin.")
+		return
+	_voice_webview = ClassDB.instantiate("WebView")
+	if _voice_webview == null:
+		push_warning("[main_scene] Could not instantiate WebView.")
+		return
+
+	# Hidden container for audio-only WebView
+	var host := Control.new()
+	host.name = "VoiceWebViewHost"
+	host.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	host.size = Vector2(1, 1)
+	host.position = Vector2(-10, -10)
+	overlay.add_child(host)
+	host.add_child(_voice_webview)
+	_voice_webview.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_voice_webview.set("autoplay", true)
+	if _voice_webview.has_signal("ipc_message"):
+		_voice_webview.connect("ipc_message", Callable(self, "_on_voice_ipc"))
+	call_deferred("_load_voice_page")
+
+
+func _load_voice_page() -> void:
+	if _voice_webview == null or not _voice_webview.has_method("load_url"):
+		return
+	_voice_webview.call("load_url", GameSessionManager.SERVER_URL + "/agora-voice")
+
+
+func _on_voice_ipc(message: String) -> void:
+	var data = JSON.parse_string(message)
+	if typeof(data) != TYPE_DICTIONARY:
+		return
+	var msg_type := str(data.get("type", ""))
+	if msg_type == "voice_status":
+		var st := str(data.get("status", ""))
+		if st == "left" and _awaiting_voice_leave:
+			_awaiting_voice_leave = false
+			GameSessionManager.end_npc_conversation()
+
+
+# ── Session manager signal handlers ──────────────────────────────────────────
+
+func _connect_session_manager() -> void:
+	GameSessionManager.session_initialized.connect(_on_session_initialized)
+	GameSessionManager.npc_session_started.connect(_on_npc_session_started)
+	GameSessionManager.npc_session_ended.connect(_on_npc_session_ended)
+	GameSessionManager.server_error.connect(_on_server_error)
+
+
+func _on_session_initialized(_npcs: Array) -> void:
+	if _server_error_label != null:
+		_server_error_label.visible = false
+
+
+func _on_npc_session_started(_npc_id: String, app_id: String, channel: String, rtc_token: String, player_uid: int) -> void:
+	if _voice_webview == null:
+		push_warning("[main_scene] Voice WebView not available — audio will not work")
+		return
+	var msg := {
+		"action": "join",
+		"appId": app_id,
+		"channel": channel,
+		"token": rtc_token,
+		"uid": player_uid,
+	}
+	_voice_webview.call("post_message", JSON.stringify(msg))
+
+
+func _on_npc_session_ended(npc_id: String, breakdown: int, trust: int, tier: String, journal_entry: Dictionary) -> void:
+	var journal := get_node_or_null("UI/Overlay/Journal")
+	if journal == null:
+		journal = find_child("Journal", true, false)
+	if journal != null and journal.has_method("add_evidence_entry"):
+		var entry_content: String = str(journal_entry.get("content", ""))
+		if entry_content != "":
+			journal.call("add_evidence_entry", entry_content)
+	if journal != null and journal.has_method("update_npc_status") and npc_id != "":
+		# Map NPC id to display name
+		var npc_names: Dictionary = { "butler": "Edwin (Butler)", "chef": "Rosa (Chef)", "gardener": "Moss (Gardener)", "maid": "Clara (Maid)" }
+		var display_name: String = npc_names.get(npc_id, npc_id.capitalize())
+		journal.call("update_npc_status", npc_id, display_name, trust, breakdown, tier)
+
+
+func _on_server_error(endpoint: String, message: String) -> void:
+	push_warning("[main_scene] Server error at %s: %s" % [endpoint, message])
+	if _server_error_label != null:
+		_server_error_label.text = "Backend offline — run: npm run agora:server"
+		_server_error_label.visible = true
+
+
+# ── Blackout integration (called by main_scene_controller) ───────────────────
+
+func force_end_conversation_for_blackout() -> void:
+	if _talking_to_npc != null:
+		_end_conversation()
+
+
+# ── Setup helpers ─────────────────────────────────────────────────────────────
+
+func _setup_npc_talk_prompt() -> void:
+	_npc_talk_prompt = Label.new()
+	_npc_talk_prompt.name = "NpcTalkPrompt"
+	_npc_talk_prompt.add_theme_font_override("font", PROMPT_FONT)
+	_npc_talk_prompt.add_theme_font_size_override("font_size", 22)
+	_npc_talk_prompt.add_theme_color_override("font_color", Color(0.988235, 0.956863, 0.835294, 1))
+	_npc_talk_prompt.add_theme_color_override("font_outline_color", Color(0.164706, 0.145098, 0.133333, 1))
+	_npc_talk_prompt.add_theme_constant_override("outline_size", 5)
+	_npc_talk_prompt.text = "Talk [M]"
+	_npc_talk_prompt.visible = false
+	_npc_talk_prompt.z_index = 10
+	overlay.add_child(_npc_talk_prompt)
+
+
+func _setup_server_error_label() -> void:
+	_server_error_label = Label.new()
+	_server_error_label.name = "ServerErrorLabel"
+	_server_error_label.add_theme_font_override("font", PROMPT_FONT)
+	_server_error_label.add_theme_font_size_override("font_size", 18)
+	_server_error_label.add_theme_color_override("font_color", Color(1, 0.4, 0.4, 1))
+	_server_error_label.add_theme_color_override("font_outline_color", Color(0.1, 0.05, 0.05, 1))
+	_server_error_label.add_theme_constant_override("outline_size", 4)
+	_server_error_label.text = "Backend offline — run: npm run agora:server"
+	_server_error_label.position = Vector2(12, 12)
+	_server_error_label.visible = false
+	overlay.add_child(_server_error_label)
 
 
 func _position_prompt() -> void:
@@ -153,6 +389,7 @@ func _setup_npcs() -> void:
 		"ballroom": Vector2(640.0, 590.0),
 	}
 
+	_npcs.clear()
 	for npc_path in [
 		^"World/Actors/Chef",
 		^"World/Actors/Butler",
@@ -160,5 +397,7 @@ func _setup_npcs() -> void:
 		^"World/Actors/Gardener",
 	]:
 		var npc := get_node_or_null(npc_path)
-		if npc != null and npc.has_method("configure"):
-			npc.call("configure", room_points)
+		if npc != null:
+			if npc.has_method("configure"):
+				npc.call("configure", room_points)
+			_npcs.append(npc)

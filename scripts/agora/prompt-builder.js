@@ -22,7 +22,7 @@ const TIER_BEHAVIOR_LINES = {
     'You have completely shut down. You say exactly this, once: "I\'m sorry. I have nothing more to say to you." After that you fall completely silent. You do not respond to anything the detective says, no matter how they press you.',
 };
 
-function buildSystemPrompt(npcProfile, npcState, scenario) {
+function buildSystemPrompt(npcProfile, npcState, scenario, roundInfo = null) {
   const tier = getTier(npcState.breakdown);
 
   const identity = [
@@ -56,7 +56,12 @@ function buildSystemPrompt(npcProfile, npcState, scenario) {
     ].join(" ");
   }
 
-  return [identity, emotion, alibi, behavior, knowledge].join("\n\n");
+  const parts = [identity, emotion, alibi, behavior, knowledge];
+  if (roundInfo && roundInfo.round) {
+    const phaseDesc = roundInfo.phase === "blackout" ? "a blackout is active — something terrible may have happened" : "detectives are investigating";
+    parts.push(`It is currently round ${roundInfo.round} of the investigation. ${phaseDesc}.`);
+  }
+  return parts.join("\n\n");
 }
 
 module.exports = { buildSystemPrompt };

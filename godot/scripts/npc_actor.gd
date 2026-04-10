@@ -46,6 +46,7 @@ var _room_points: Dictionary = {}
 var _current_target := Vector2.ZERO
 var _idle_timer := 0.0
 var _rng := RandomNumberGenerator.new()
+var is_talking := false
 
 
 func _ready() -> void:
@@ -61,8 +62,18 @@ func configure(room_points: Dictionary) -> void:
 	_pick_next_target()
 
 
+func set_talking(active: bool) -> void:
+	is_talking = active
+	if sprite != null:
+		if active:
+			sprite.modulate = Color(1.4, 1.4, 0.8, 1.0)  # Warm glow when talking
+			sprite.play("idle")
+		else:
+			sprite.modulate = Color(1.0, 1.0, 1.0, 1.0)
+
+
 func _physics_process(delta: float) -> void:
-	if _room_points.is_empty():
+	if _room_points.is_empty() or is_talking:
 		return
 
 	var to_target := _current_target - global_position

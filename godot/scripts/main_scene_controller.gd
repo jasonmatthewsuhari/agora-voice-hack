@@ -68,6 +68,11 @@ func _start_blackout() -> void:
 	phase_label.text = "BLACKOUT"
 	timer_bar.modulate = Color(1, 0.564706, 0.447059, 1)
 	_update_timer_ui()
+	# Force-end any active NPC conversation during blackout
+	if GameSessionManager.active_npc_id != "":
+		var main := get_node_or_null("/root/main")
+		if main != null and main.has_method("force_end_conversation_for_blackout"):
+			main.call("force_end_conversation_for_blackout")
 
 
 func _update_timer_ui() -> void:

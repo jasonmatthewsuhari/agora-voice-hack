@@ -26,17 +26,14 @@ const CLOSED_BOOKMARK_ROTATION := 0.0
 const OPEN_BOOKMARK_ROTATION := 0.0
 const TRANSITION_DURATION := 0.2
 
-const CORRECT_CASE := {
-	"suspect": 2,
-	"weapon": 1,
-	"location": 2,
-}
+# Suspect index → NPC ID mapping (matches journal.tscn dropdown order)
+const SUSPECT_NPC_IDS := ["", "butler", "chef", "gardener", "maid"]
+# Weapon index → backend weapon string
+const WEAPON_IDS := ["", "candlestick", "kitchen knife", "silk cord", "broken glass shard"]
+# Location index → backend room string
+const LOCATION_IDS := ["", "library", "kitchen", "dining", "ballroom"]
 
-const THEORY_DEFAULT := "[i]The killer knew the manor layout and moved during blackout. The crash in the atrium and the missing candlestick feel connected.[/i]\n\n[b]Current read:[/b] Someone is staging panic to hide a planned route between the kitchen corridor and the conservatory."
-const THEORY_PIN_GLASS := "[i]Pinned clue:[/i] The shattered glass ties noise, movement, and wet footprints together.\n\n[b]Lead:[/b] Ren's denial is now the weakest alibi in the house. Cross-check anyone who claims they stayed east of the atrium."
-const THEORY_PIN_WEAPON := "[i]Pinned clue:[/i] The missing candlestick implies intent, not panic.\n\n[b]Lead:[/b] Whoever lifted it likely knew blackout timing in advance and chose a route with low witness traffic."
-const THEORY_PIN_TESTIMONY := "[i]Pinned clue:[/i] Daichi's changing testimony suggests he is hiding a timeline gap.\n\n[b]Lead:[/b] The contradiction may be fear rather than guilt, but it still narrows who saw the killer move."
-const THEORY_CROSS_CHECK := "[i]Cross-check complete:[/i] Ren and Daichi now carry the most pressure in the timeline.\n\n[b]Lead:[/b] The strongest version of the case is a planned movement through the kitchen passage during blackout using the missing candlestick."
+const THEORY_DEFAULT := "[i]The killer knew the manor layout and moved during blackout. Speak to the suspects and build your case from their words and movement.[/i]\n\n[b]Current read:[/b] Interrogate the staff. Watch for contradictions and track who breaks down under pressure."
 
 @onready var backdrop: ColorRect = $Backdrop
 @onready var journal_shell: PanelContainer = $JournalShell
@@ -58,6 +55,8 @@ const THEORY_CROSS_CHECK := "[i]Cross-check complete:[/i] Ren and Daichi now car
 
 var pinned_clue_index := -1
 var is_journal_open := false
+var _evidence_entries: Array[String] = []
+var _npc_statuses: Dictionary = {}  # npc_id -> {name, trust, breakdown, tier}
 
 
 func _ready() -> void:
@@ -72,13 +71,17 @@ func _ready() -> void:
 	_apply_default_state()
 	_apply_pose(false)
 
+	# Connect accusation result signal
+	if has_node("/root/GameSessionManager"):
+		GameSessionManager.accusation_result.connect(_on_accusation_result)
+
 
 func _apply_default_state() -> void:
 	theory_text.text = THEORY_DEFAULT
-	phase_summary.text = "34 seconds until blackout"
-	phase_hint.text = "Listen for disturbances, pressure suspects, and log any change in trust before the lights fail."
-	evidence_action_text.text = "Pinned clue: none"
-	accusation_note_text.text = "A false accusation should damage trust. Leave the case open until your timeline and object trail line up."
+	phase_summary.text = "Investigating Blackwell Manor"
+	phase_hint.text = "Walk to a suspect and press M to begin a voice interrogation."
+	evidence_action_text.text = "No conversations yet — interrogate the suspects."
+	accusation_note_text.text = "Speak with the suspects before making your accusation."
 	_update_case_summary()
 
 
@@ -98,8 +101,46 @@ func is_open() -> bool:
 	return is_journal_open
 
 
+# ── Dynamic evidence from conversations ──────────────────────────────────────
+
+func add_evidence_entry(text: String) -> void:
+	if text == "":
+		return
+	_evidence_entries.append(text)
+	# Show the most recent entry in the evidence action text
+	evidence_action_text.text = text
+	# Update theory with a summary if we have entries
+	if _evidence_entries.size() == 1:
+		theory_text.text = "[b]First interrogation logged.[/b]\n\n[i]%s[/i]" % text
+	elif _evidence_entries.size() >= 2:
+		theory_text.text = "[b]%d interrogations logged.[/b]\n\n[i]%s[/i]" % [_evidence_entries.size(), _evidence_entries.back()]
+
+
+func update_npc_status(npc_id: String, name: String, trust: int, breakdown: int, tier: String) -> void:
+	_npc_statuses[npc_id] = { "name": name, "trust": trust, "breakdown": breakdown, "tier": tier }
+	_rebuild_trust_list()
+
+
+func _rebuild_trust_list() -> void:
+	if _npc_statuses.is_empty():
+		return
+	var lines: Array[String] = []
+	for npc_id in _npc_statuses:
+		var s: Dictionary = _npc_statuses[npc_id]
+		var trust_color: String = "#355b52" if s.trust >= 50 else "#8a4f3b"
+		var breakdown_color: String = "#8a4f3b" if s.breakdown >= 60 else "#6b7c5a"
+		lines.append(
+			"%s: Trust [color=%s]%d[/color]  |  Breakdown [color=%s]%d[/color]  [i](%s)[/i]" % [
+				s.name, trust_color, s.trust, breakdown_color, s.breakdown, s.tier
+			]
+		)
+	trust_list.text = "\n".join(lines)
+
+
+# ── Animation ─────────────────────────────────────────────────────────────────
+
 func _apply_pose(opened: bool) -> void:
-	var offsets := OPEN_OFFSETS if opened else CLOSED_OFFSETS
+	var offsets: Dictionary = OPEN_OFFSETS if opened else CLOSED_OFFSETS
 	journal_shell.offset_left = offsets.left
 	journal_shell.offset_top = offsets.top
 	journal_shell.offset_right = offsets.right
@@ -113,12 +154,12 @@ func _apply_pose(opened: bool) -> void:
 
 
 func _animate_pose() -> void:
-	var offsets := OPEN_OFFSETS if is_journal_open else CLOSED_OFFSETS
-	var target_rotation := OPEN_ROTATION if is_journal_open else CLOSED_ROTATION
-	var target_scale := OPEN_SCALE if is_journal_open else CLOSED_SCALE
-	var target_backdrop_alpha := OPEN_BACKDROP_ALPHA if is_journal_open else CLOSED_BACKDROP_ALPHA
-	var target_bookmark_alpha := OPEN_BOOKMARK_ALPHA if is_journal_open else CLOSED_BOOKMARK_ALPHA
-	var target_bookmark_rotation := OPEN_BOOKMARK_ROTATION if is_journal_open else CLOSED_BOOKMARK_ROTATION
+	var offsets: Dictionary = OPEN_OFFSETS if is_journal_open else CLOSED_OFFSETS
+	var target_rotation: float = OPEN_ROTATION if is_journal_open else CLOSED_ROTATION
+	var target_scale: Vector2 = OPEN_SCALE if is_journal_open else CLOSED_SCALE
+	var target_backdrop_alpha: float = OPEN_BACKDROP_ALPHA if is_journal_open else CLOSED_BACKDROP_ALPHA
+	var target_bookmark_alpha: float = OPEN_BOOKMARK_ALPHA if is_journal_open else CLOSED_BOOKMARK_ALPHA
+	var target_bookmark_rotation: float = OPEN_BOOKMARK_ROTATION if is_journal_open else CLOSED_BOOKMARK_ROTATION
 	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP if is_journal_open else Control.MOUSE_FILTER_IGNORE
 
 	var tween := create_tween().set_parallel(true)
@@ -135,52 +176,67 @@ func _animate_pose() -> void:
 	tween.tween_property(backdrop, "color:a", target_backdrop_alpha, TRANSITION_DURATION)
 
 
-func _on_pin_clue_pressed() -> void:
-	pinned_clue_index = (pinned_clue_index + 1) % 3
+# ── Button handlers ───────────────────────────────────────────────────────────
 
-	match pinned_clue_index:
-		0:
-			evidence_action_text.text = "Pinned clue: Glass shattered near the central fountain"
-			theory_text.text = THEORY_PIN_GLASS
-		1:
-			evidence_action_text.text = "Pinned clue: Candlestick missing from display shelf"
-			theory_text.text = THEORY_PIN_WEAPON
-		2:
-			evidence_action_text.text = "Pinned clue: Daichi contradicts his first timeline"
-			theory_text.text = THEORY_PIN_TESTIMONY
+func _on_pin_clue_pressed() -> void:
+	if _evidence_entries.is_empty():
+		evidence_action_text.text = "No evidence logged yet — interrogate suspects first."
+		return
+
+	pinned_clue_index = (pinned_clue_index + 1) % _evidence_entries.size()
+	evidence_action_text.text = "Pinned: %s" % _evidence_entries[pinned_clue_index]
 
 
 func _on_cross_check_pressed() -> void:
-	theory_text.text = THEORY_CROSS_CHECK
-	phase_summary.text = "Alibis cross-checked"
-	phase_hint.text = "Ren and Daichi now need direct follow-up before you lock the accusation."
-	trust_list.text = "Aiko: Trust [color=#355b52]68[/color]  |  Breakdown [color=#8a4f3b]24[/color]\nRen: Trust [color=#355b52]33[/color]  |  Breakdown [color=#8a4f3b]71[/color]\nMina: Trust [color=#355b52]57[/color]  |  Breakdown [color=#8a4f3b]45[/color]\nDaichi: Trust [color=#355b52]25[/color]  |  Breakdown [color=#8a4f3b]81[/color]"
-	accusation_note_text.text = "Cross-checking tightened the timeline. The cleanest accusation now points through the kitchen passage and the missing candlestick."
+	if _evidence_entries.is_empty():
+		theory_text.text = "[i]No conversations logged yet. Interrogate the suspects to build a case.[/i]"
+		return
+	theory_text.text = "[b]Cross-check:[/b] %d conversation(s) on record.\n\n[i]%s[/i]" % [
+		_evidence_entries.size(), _evidence_entries.back()
+	]
+	phase_hint.text = "Cross-check complete. Review trust and breakdown before locking your accusation."
 
 
 func _on_clear_case_pressed() -> void:
 	suspect_choice.select(0)
 	weapon_choice.select(0)
 	location_choice.select(0)
-	accusation_note_text.text = "Theory reset. Rebuild the case from the strongest clue chain before accusing anyone."
+	accusation_note_text.text = "Theory reset. Rebuild the case from your interrogation logs."
 	_update_case_summary()
 
 
 func _on_submit_accusation_pressed() -> void:
 	if not _case_complete():
-		accusation_note_text.text = "Theory incomplete. You still need a suspect, weapon, and location before the journal can lock an accusation."
+		accusation_note_text.text = "Theory incomplete. You still need a suspect, weapon, and location."
 		_update_case_summary()
 		return
 
-	var is_correct := suspect_choice.selected == CORRECT_CASE.suspect \
-		and weapon_choice.selected == CORRECT_CASE.weapon \
-		and location_choice.selected == CORRECT_CASE.location
+	var suspect_idx := suspect_choice.selected
+	var weapon_idx := weapon_choice.selected
+	var location_idx := location_choice.selected
 
-	if is_correct:
-		accusation_note_text.text = "Accusation aligned. Ren, the candlestick, and the kitchen passage match the strongest evidence thread in this prototype case."
+	var suspect_npc_id: String = SUSPECT_NPC_IDS[suspect_idx] if suspect_idx < SUSPECT_NPC_IDS.size() else ""
+	var weapon_str: String = WEAPON_IDS[weapon_idx] if weapon_idx < WEAPON_IDS.size() else ""
+	var room_str: String = LOCATION_IDS[location_idx] if location_idx < LOCATION_IDS.size() else ""
+
+	accusation_note_text.text = "Submitting accusation..."
+	submit_accusation_button.disabled = true
+
+	GameSessionManager.submit_accusation(suspect_npc_id, weapon_str, room_str)
+
+
+func _on_accusation_result(correct: bool, reveal: Dictionary) -> void:
+	submit_accusation_button.disabled = false
+	var murderer := str(reveal.get("murderer", "unknown"))
+	var weapon := str(reveal.get("weapon", "unknown"))
+	var room := str(reveal.get("room", "unknown"))
+	var victim := str(reveal.get("victim", "Lady Blackwell"))
+
+	if correct:
+		accusation_note_text.text = "CASE SOLVED. %s killed %s with the %s in the %s. Well done, Detective." % [murderer.capitalize(), victim, weapon, room]
+		phase_summary.text = "Case closed."
 	else:
-		accusation_note_text.text = "Accusation logged, but the evidence trail feels weak. A wrong call here would damage trust across the remaining NPCs."
-
+		accusation_note_text.text = "Wrong accusation. The truth: %s killed %s with the %s in the %s. NPC trust reduced." % [murderer.capitalize(), victim, weapon, room]
 	_update_case_summary()
 
 

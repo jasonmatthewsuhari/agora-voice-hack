@@ -875,13 +875,13 @@ item_count = 5
 selected = 0
 popup/item_0/text = "Select suspect"
 popup/item_0/id = 0
-popup/item_1/text = "Aiko"
+popup/item_1/text = "Edwin Graves (Butler)"
 popup/item_1/id = 1
-popup/item_2/text = "Ren"
+popup/item_2/text = "Rosa Hartwell (Chef)"
 popup/item_2/id = 2
-popup/item_3/text = "Mina"
+popup/item_3/text = "Moss Faircloth (Gardener)"
 popup/item_3/id = 3
-popup/item_4/text = "Daichi"
+popup/item_4/text = "Clara Wren (Maid)"
 popup/item_4/id = 4
 
 [node name="WeaponSlot" type="PanelContainer" parent="JournalShell/Margin/Book/RightPage/Case/CaseSlots"]
@@ -961,13 +961,13 @@ item_count = 5
 selected = 0
 popup/item_0/text = "Select location"
 popup/item_0/id = 0
-popup/item_1/text = "Atrium"
+popup/item_1/text = "Library"
 popup/item_1/id = 1
-popup/item_2/text = "Kitchen passage"
+popup/item_2/text = "Kitchen"
 popup/item_2/id = 2
-popup/item_3/text = "Conservatory"
+popup/item_3/text = "Dining Room"
 popup/item_3/id = 3
-popup/item_4/text = "Music room"
+popup/item_4/text = "Ballroom"
 popup/item_4/id = 4
 
 [node name="AccusationNote" type="PanelContainer" parent="JournalShell/Margin/Book/RightPage/Case"]

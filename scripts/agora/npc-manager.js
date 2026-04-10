@@ -173,13 +173,13 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-async function spawnNpcAgent(npcProfile, npcState, scenario, playerUid) {
+async function spawnNpcAgent(npcProfile, npcState, scenario, playerUid, roundInfo = null) {
   const agentUid = NPC_AGENT_UIDS[npcProfile.npcId];
   if (!agentUid) {
     throw new Error(`No agent UID configured for NPC: ${npcProfile.npcId}`);
   }
 
-  const systemPrompt = buildSystemPrompt(npcProfile, npcState, scenario);
+  const systemPrompt = buildSystemPrompt(npcProfile, npcState, scenario, roundInfo);
   const inline = useInlineConfig();
   const pipeline = usePipelineConfig();
 

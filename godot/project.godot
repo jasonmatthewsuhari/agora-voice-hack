@@ -15,6 +15,10 @@ run/main_scene="res://scenes/title_screen.tscn"
 config/features=PackedStringArray("4.6")
 config/icon="res://assets/icon.svg"
 
+[autoload]
+
+GameSessionManager="*res://scenes/game_session_manager.tscn"
+
 [display]
 
 window/size/viewport_width=1280

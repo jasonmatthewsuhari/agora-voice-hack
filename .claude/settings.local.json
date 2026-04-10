@@ -5,7 +5,8 @@
       "WebFetch(domain:docs.agora.io)",
       "WebFetch(domain:www.agora.io)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:medium.com)"
+      "WebFetch(domain:medium.com)",
+      "Bash(grep -l \"main_scene_controller\" C:/Coding/agora-voice-hack/godot/scenes/*.tscn)"
     ]
   }
 }
