@@ -72,8 +72,6 @@ enabled = false
 [node name="World" type="Node2D" parent="." unique_id=45675150]
 
 [node name="Rooms" type="Node2D" parent="World" unique_id=1495869484 instance=ExtResource("1_g7qpi")]
-position = Vector2(40, -180)
-scale = Vector2(0.7, 0.7)
 
 [node name="MistBackdrop" type="Polygon2D" parent="World" unique_id=182887441]
 color = Color(0.784314, 0.823529, 0.694118, 1)
@@ -257,6 +255,23 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
+[node name="PostFX" type="ColorRect" parent="UI/Overlay" unique_id=1073775071]
+material = SubResource("ShaderMaterial_hh1g0")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+mouse_filter = 2
+
+[node name="Hint" type="Label" parent="UI/Overlay" unique_id=111265562]
+layout_mode = 0
+offset_left = 28.0
+offset_top = 26.0
+offset_right = 510.0
+offset_bottom = 84.0
+text = "Arrow keys move. Hold E near the crate to inspect it."
+label_settings = SubResource("LabelSettings_3aovx")
+
 [node name="InteractPrompt" type="Control" parent="UI/Overlay" unique_id=1058761913]
 anchors_preset = 0
 offset_right = 92.0
@@ -277,20 +292,3 @@ theme_override_constants/outline_size = 6
 text = "E"
 horizontal_alignment = 1
 vertical_alignment = 1
-
-[node name="PostFX" type="ColorRect" parent="UI/Overlay" unique_id=1073775071]
-material = SubResource("ShaderMaterial_hh1g0")
-layout_mode = 1
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-mouse_filter = 2
-
-[node name="Hint" type="Label" parent="UI/Overlay" unique_id=111265562]
-layout_mode = 0
-offset_left = 28.0
-offset_top = 26.0
-offset_right = 510.0
-offset_bottom = 84.0
-text = "Arrow keys move. Hold E near the crate to inspect it."
-label_settings = SubResource("LabelSettings_3aovx")
