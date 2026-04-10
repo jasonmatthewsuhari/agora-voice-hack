@@ -265,6 +265,10 @@ async function startSession(input) {
   const agentToken = buildAgentToken(config, request);
   const joinPayload = buildJoinPayload(request, agentToken);
 
+  if (process.env.DEBUG_AGORA_JOIN === "1") {
+    console.log("[DEBUG_AGORA_JOIN] POST /join payload:\n", JSON.stringify(joinPayload, null, 2));
+  }
+
   const agent = await callAgora(config, `/projects/${config.appId}/join`, {
     method: "POST",
     headers: {

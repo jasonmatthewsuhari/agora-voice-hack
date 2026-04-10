@@ -29,12 +29,16 @@ function buildLlmConfig(systemPrompt) {
   const api_key = mistralKey || openAiKey;
 
   return {
+    vendor: "custom",
     url,
     api_key,
     system_messages: [{ role: "system", content: systemPrompt }],
+    max_history: 32,
     params: {
       model: process.env.LLM_MODEL || (mistralKey ? "mistral-small-latest" : "gpt-4o-mini"),
       max_tokens: 512,
+      temperature: 0.7,
+      stream: true,
     },
   };
 }
@@ -78,6 +82,8 @@ async function spawnNpcAgent(npcProfile, npcState, scenario, playerUid) {
     playerUid,
     agentUid,
     greetingMessage: NPC_GREETING,
+    failureMessage:
+      "Forgive me — I need a moment. Something is wrong with my thoughts.",
     idleTimeout: 180,
   };
 
@@ -113,4 +119,10 @@ async function despawnNpcAgent(npcState) {
   return { ok: true, agent_id: agentId };
 }
 
-module.exports = { spawnNpcAgent, despawnNpcAgent, NPC_AGENT_UIDS };
+module.exports = {
+  spawnNpcAgent,
+  despawnNpcAgent,
+  NPC_AGENT_UIDS,
+  buildLlmConfig,
+  buildTtsConfig,
+};

@@ -8,7 +8,8 @@
     "setup": "node update-templates.js",
     "agora:server": "node scripts/agora/session-server.js",
     "agora:start": "node scripts/agora/start-agent.js",
-    "agora:stop": "node scripts/agora/stop-agent.js"
+    "agora:stop": "node scripts/agora/stop-agent.js",
+    "agora:diagnose": "node scripts/agora/diagnose.js"
   },
   "dependencies": {
     "agora-agent-server-sdk": "^1.3.1",
